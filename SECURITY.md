@@ -38,3 +38,12 @@ embargo on public disclosure.
 
 If you believe you should be on the list, please contact us and we will
 consider your request based on the above criteria.
+
+## License Compatibility
+
+For security vulnerability patches released under Redis Open Source 7.4 and 
+thereafter, Redis permits users of earlier versions (7.2 and prior) to access
+patches under the BSD3 license noted in REDISCONTRIBUTIONS.txt instead of the
+full license requirements described in LICENSE.txt. Security fixes are tested
+only against the specific versions for which they are provided. Applicability
+or portability to other versions or forks has not been evaluated.
