@@ -11,10 +11,10 @@ unless this is not possible or feasible with a reasonable effort.
 
 | Version | Supported                                                   |
 |---------|-------------------------------------------------------------|
+| 8.2.x   | :white_check_mark:                                          |
 | 8.0.x   | :white_check_mark:                                          |
 | 7.4.x   | :white_check_mark:                                          |
-| 7.2.x   | :white_check_mark:                                          |
-| < 7.2.x | :x:                                                         |
+| < 7.4.x | :x:                                                         |
 | 6.2.x   | :white_check_mark: Support may be removed after end of 2025 |
 | < 6.2.x | :x:                                                         |
 
