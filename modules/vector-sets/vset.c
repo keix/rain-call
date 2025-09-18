@@ -826,7 +826,6 @@ void VSIM_execute(RedisModuleCtx *ctx, struct vsetObject *vset,
     /* Perform search */
     hnswNode **neighbors = RedisModule_Alloc(sizeof(hnswNode*)*ef);
     float *distances = RedisModule_Alloc(sizeof(float)*ef);
-    int slot = hnsw_acquire_read_slot(vset->hnsw);
     unsigned int found;
     if (ground_truth) {
         found = hnsw_ground_truth_with_filter(vset->hnsw, vec, ef, neighbors,
