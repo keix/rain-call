@@ -820,6 +820,9 @@ void VSIM_execute(RedisModuleCtx *ctx, struct vsetObject *vset,
     if (ef == 0) ef = VSET_DEFAULT_SEARCH_EF;
     if (count > ef) ef = count;
 
+    int slot = hnsw_acquire_read_slot(vset->hnsw);
+    if (ef > vset->hnsw->node_count) ef = vset->hnsw->node_count;
+
     /* Perform search */
     hnswNode **neighbors = RedisModule_Alloc(sizeof(hnswNode*)*ef);
     float *distances = RedisModule_Alloc(sizeof(float)*ef);
@@ -1075,7 +1078,7 @@ int VSIM_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
             j += 2;
         } else if (!strcasecmp(opt, "EF") && j+1 < argc) {
             if (RedisModule_StringToLongLong(argv[j+1], &ef) !=
-                REDISMODULE_OK || ef <= 0)
+                REDISMODULE_OK || ef <= 0 || ef > 1000000)
             {
                 RedisModule_Free(vec);
                 return RedisModule_ReplyWithError(ctx, "ERR invalid EF");
