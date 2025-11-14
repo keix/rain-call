@@ -314,7 +314,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
                                   * from the value of the key. */
 /* Other flags: */
 #define CMD_KEY_NOT_KEY (1ULL<<8)     /* A 'fake' key that should be routed
-                                       * like a key in cluster mode but is 
+                                       * like a key in cluster mode but is
                                        * excluded from other key checks. */
 #define CMD_KEY_INCOMPLETE (1ULL<<9)  /* Means that the keyspec might not point
                                        * out to all keys it should cover */
@@ -1156,7 +1156,7 @@ typedef struct rdbLoadingCtx {
 typedef struct pendingCommand pendingCommand;
 typedef struct multiState {
     pendingCommand **commands;     /* Array of pointers to MULTI commands */
-    int executing_cmd;      /* The index of the currently executed transaction 
+    int executing_cmd;      /* The index of the currently executed transaction
                                command (index in commands field) */
     int count;              /* Total number of MULTI commands */
     int cmd_flags;          /* The accumulated command flags OR-ed together.
@@ -1329,7 +1329,7 @@ typedef struct {
  * IO threads to avoid blocking the main event loop. */
 typedef struct deferredObject {
     int type;    /* Pointer to the object to be freed */
-    void *ptr;   /* Type of object: DEFERRED_OBJECT_TYPE_* */ 
+    void *ptr;   /* Type of object: DEFERRED_OBJECT_TYPE_* */
 } deferredObject;
 
 #define SHOULD_CLUSTER_COMPATIBILITY_SAMPLE() \
@@ -2862,6 +2862,7 @@ void modulePipeReadable(aeEventLoop *el, int fd, void *privdata, int mask);
 size_t moduleCount(void);
 void moduleAcquireGIL(void);
 int moduleTryAcquireGIL(void);
+int moduleTryAcquireGILFor(long long timeout_ns);
 void moduleReleaseGIL(void);
 void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid);
 void firePostExecutionUnitJobs(void);
@@ -3688,7 +3689,7 @@ sds keyspaceEventsFlagsToString(int flags);
 
 /* Configuration */
 /* Configuration Flags */
-#define MODIFIABLE_CONFIG 0 /* This is the implied default for a standard 
+#define MODIFIABLE_CONFIG 0 /* This is the implied default for a standard
                              * config, which is mutable. */
 #define IMMUTABLE_CONFIG (1ULL<<0) /* Can this value only be set at startup? */
 #define SENSITIVE_CONFIG (1ULL<<1) /* Does this value contain sensitive information */

@@ -41,7 +41,7 @@ typedef long long ustime_t;
 /* API versions. */
 #define REDISMODULE_APIVER_1 1
 
-/* Version of the RedisModuleTypeMethods structure. Once the RedisModuleTypeMethods 
+/* Version of the RedisModuleTypeMethods structure. Once the RedisModuleTypeMethods
  * structure is changed, this version number needs to be changed synchronistically. */
 #define REDISMODULE_TYPE_METHOD_VERSION 5
 
@@ -121,7 +121,7 @@ typedef long long ustime_t;
 #define REDISMODULE_HASH_CFIELDS     (1<<2)
 #define REDISMODULE_HASH_EXISTS      (1<<3)
 #define REDISMODULE_HASH_COUNT_ALL   (1<<4)
-#define REDISMODULE_HASH_EXPIRE_TIME (1<<5) 
+#define REDISMODULE_HASH_EXPIRE_TIME (1<<5)
 
 #define REDISMODULE_CONFIG_DEFAULT 0 /* This is the default for a module config. */
 #define REDISMODULE_CONFIG_IMMUTABLE (1ULL<<0) /* Can this value only be set at startup? */
@@ -599,7 +599,7 @@ static const RedisModuleEvent
     /* Deprecated since Redis 7.0, not used anymore. */
     __attribute__ ((deprecated))
     RedisModuleEvent_ReplBackup = {
-        REDISMODULE_EVENT_REPL_BACKUP, 
+        REDISMODULE_EVENT_REPL_BACKUP,
         1
     },
     RedisModuleEvent_ReplAsyncLoad = {
@@ -1313,6 +1313,7 @@ REDISMODULE_API RedisModuleCtx * (*RedisModule_GetDetachedThreadSafeContext)(Red
 REDISMODULE_API void (*RedisModule_FreeThreadSafeContext)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_ThreadSafeContextLock)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ThreadSafeContextTryLock)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ThreadSafeContextTryLockFor)(RedisModuleCtx *ctx, long long timeout_ns) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_ThreadSafeContextUnlock)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_SubscribeToKeyspaceEvents)(RedisModuleCtx *ctx, int types, RedisModuleNotificationFunc cb) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_UnsubscribeFromKeyspaceEvents)(RedisModuleCtx *ctx, int types, RedisModuleNotificationFunc cb) REDISMODULE_ATTR;
@@ -1763,7 +1764,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(GetModuleUserFromUserName);
     REDISMODULE_GET_API(ACLCheckCommandPermissions);
     REDISMODULE_GET_API(ACLCheckKeyPermissions);
-    REDISMODULE_GET_API(ACLCheckKeyPrefixPermissions);    
+    REDISMODULE_GET_API(ACLCheckKeyPrefixPermissions);
     REDISMODULE_GET_API(ACLCheckChannelPermissions);
     REDISMODULE_GET_API(ACLAddLogEntry);
     REDISMODULE_GET_API(ACLAddLogEntryByUserName);
