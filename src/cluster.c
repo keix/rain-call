@@ -294,16 +294,16 @@ void restoreCommand(client *c) {
 
     /* Create the key and set the TTL if any */
     kvobj *kv = dbAddInternal(c->db, key, &obj, NULL, &keymeta);
-
+    int newtype = kv->type;
     /* If minExpiredField was set, then the object is hash with expiration
      * on fields and need to register it in global HFE DS */
-    if (kv->type == OBJ_HASH) {
+    if (newtype == OBJ_HASH) {
         uint64_t minExpiredField = hashTypeGetMinExpire(kv, 1);
         if (minExpiredField != EB_EXPIRE_TIME_INVALID)
             estoreAdd(c->db->subexpires, getKeySlot(key->ptr), kv, minExpiredField);
     }
 
-    if (kv->type == OBJ_STREAM) {
+    if (newtype == OBJ_STREAM) {
         stream *s = kv->ptr;
         if (s->idmp_producers != NULL) {
             if (dictAdd(c->db->stream_idmp_keys, key, NULL) == DICT_OK)
@@ -328,7 +328,7 @@ void restoreCommand(client *c) {
      * destination key existed. */
     if (deleted) {
         notifyKeyspaceEvent(NOTIFY_OVERWRITTEN, "overwritten", key, c->db->id);
-        if (oldtype != kv->type) {
+        if (oldtype != newtype) {
             notifyKeyspaceEvent(NOTIFY_TYPE_CHANGED, "type_changed", key, c->db->id);
         }
     }
@@ -2127,13 +2127,13 @@ slotRangeArray *clusterGetLocalSlotRanges(void) {
  *
  * Usage: SFLUSH <start-slot> <end slot> [<start-slot> <end slot>]* [SYNC|ASYNC]
  *
- * Redis will flush the slots that belong to this node and reply with the flushed 
+ * Redis will flush the slots that belong to this node and reply with the flushed
  * slot ranges. If no slot is flushed, an empty array will be returned.
- * 
+ *
  * e.g. Node owns slot 100-200, user issues SFLUSH 50 150
  * Redis will flush slot 100-150 and reply with [100,150]
- * 
- * If possible, SFLUSH SYNC will be run as blocking ASYNC as an 
+ *
+ * If possible, SFLUSH SYNC will be run as blocking ASYNC as an
  * optimization.
  */
 void sflushCommand(client *c) {
@@ -2189,7 +2189,7 @@ void sflushCommand(client *c) {
         return;
     }
     slotRangeArrayFree(slots);
-    
+
     /* takes ownership of myslots */
     asmTrimCtx *trim_ctx = asmTrimCtxCreate(myslots, server.db[0].keys);
 
