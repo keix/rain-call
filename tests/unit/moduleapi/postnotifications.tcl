@@ -148,6 +148,54 @@ tags "modules external:skip" {
             close_replication_stream $repl
         }
 
+        test {Test per-key post notification job fans out within a MULTI/EXEC} {
+            r flushall
+            set repl [attach_to_replication_stream]
+
+            r multi
+            r set batched_a 1
+            r set batched_b 2
+            r set batched_c 3
+            r exec
+
+            assert_equal {batched_c batched_b batched_a} [r lrange batched_keys 0 -1]
+
+            # The three SETs are one execution unit; the keyed post-notification
+            # job coalesces them and the callback fans out into three LPUSHes
+            # inside the same MULTI/EXEC propagation block.
+            assert_replication_stream $repl {
+                {multi}
+                {select *}
+                {set batched_a 1}
+                {set batched_b 2}
+                {set batched_c 3}
+                {lpush batched_keys batched_a}
+                {lpush batched_keys batched_b}
+                {lpush batched_keys batched_c}
+                {exec}
+            }
+            close_replication_stream $repl
+        }
+
+        test {Test per-key post notification job from a multi-key command} {
+            r flushall
+            set repl [attach_to_replication_stream]
+
+            r mset batched_a 1 batched_b 2 batched_c 3
+            assert_equal {batched_c batched_b batched_a} [r lrange batched_keys 0 -1]
+
+            assert_replication_stream $repl {
+                {multi}
+                {select *}
+                {mset batched_a 1 batched_b 2 batched_c 3}
+                {lpush batched_keys batched_a}
+                {lpush batched_keys batched_b}
+                {lpush batched_keys batched_c}
+                {exec}
+            }
+            close_replication_stream $repl
+        }
+
         test {Test eviction} {
             r flushall
             set repl [attach_to_replication_stream]

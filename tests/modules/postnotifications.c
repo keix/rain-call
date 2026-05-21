@@ -49,6 +49,27 @@ static void KeySpace_PostNotificationString(RedisModuleCtx *ctx, void *pd) {
     RedisModule_FreeCallReply(rep);
 }
 
+/* Per-key post-notification callback: appends each batched key to a single
+ * list, so the test can assert all keys touched in one execution unit fan
+ * out into the same MULTI/EXEC replication block. */
+static void KeySpace_PostNotificationBatchedKey(RedisModuleCtx *ctx, RedisModuleString *key, void *pd) {
+    REDISMODULE_NOT_USED(pd);
+    RedisModuleCallReply *rep = RedisModule_Call(ctx, "lpush", "!cs", "batched_keys", key);
+    RedisModule_FreeCallReply(rep);
+}
+
+static int KeySpace_NotificationBatched(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
+    REDISMODULE_NOT_USED(type);
+    REDISMODULE_NOT_USED(event);
+
+    const char *key_str = RedisModule_StringPtrLen(key, NULL);
+    if (strncmp(key_str, "batched_", 8) != 0) return REDISMODULE_OK;
+    if (strcmp(key_str, "batched_keys") == 0) return REDISMODULE_OK; /* skip our sink list */
+
+    RedisModule_AddPostNotificationJobForKey(ctx, KeySpace_PostNotificationBatchedKey, key, NULL, NULL);
+    return REDISMODULE_OK;
+}
+
 static int KeySpace_NotificationExpired(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key){
     REDISMODULE_NOT_USED(type);
     REDISMODULE_NOT_USED(event);
@@ -266,6 +287,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     }
 
     if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_EVICTED, KeySpace_NotificationEvicted) != REDISMODULE_OK){
+        return REDISMODULE_ERR;
+    }
+
+    if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_STRING, KeySpace_NotificationBatched) != REDISMODULE_OK){
         return REDISMODULE_ERR;
     }
 
