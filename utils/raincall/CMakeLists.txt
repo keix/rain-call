@@ -18,6 +18,28 @@ if(NOT MOONQUAKES_INCLUDE_DIR)
     "or install the header under /usr/local/include.")
 endif()
 
+set(HIREDIS_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../deps/hiredis")
+
+add_library(raincall_hiredis STATIC
+  "${HIREDIS_ROOT}/alloc.c"
+  "${HIREDIS_ROOT}/async.c"
+  "${HIREDIS_ROOT}/dict.c"
+  "${HIREDIS_ROOT}/hiredis.c"
+  "${HIREDIS_ROOT}/net.c"
+  "${HIREDIS_ROOT}/read.c"
+  "${HIREDIS_ROOT}/sds.c"
+  "${HIREDIS_ROOT}/sockcompat.c"
+)
+
+set_target_properties(raincall_hiredis PROPERTIES
+  POSITION_INDEPENDENT_CODE ON
+)
+
+target_include_directories(raincall_hiredis
+  PUBLIC
+    "${HIREDIS_ROOT}"
+)
+
 add_library(raincall SHARED raincall.c)
 
 target_include_directories(raincall
@@ -25,6 +47,8 @@ target_include_directories(raincall
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${MOONQUAKES_INCLUDE_DIR}"
 )
+
+target_link_libraries(raincall PRIVATE raincall_hiredis)
 
 # Do not link libmoonquakes. mq_* symbols stay undefined in libraincall.so
 # and are resolved at dlopen time from the host process (Moonquakes CLI,
