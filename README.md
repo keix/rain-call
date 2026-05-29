@@ -15,16 +15,14 @@ Moonquakes executes.
 The Rain-Call host bridge mutates Redis state.
 ```
 
-## Names
+## Why Rain-Call?
 
-```text
-Rain-Call         display name / proper noun in prose
-rain-call         repository / project / package identifier
-raincall          daemon / executable
-libraincall.so    Rain-Call host capability installer
-libmoonquakes.so  Moonquakes VM engine
-rain.lua          Lua-side RAIN.CALL wrapper
-```
+Rain-Call names the moment when falling input becomes a call.
+
+Redis receives bytes. RESP gives them structure.  
+`RAIN.CALL` crosses the command boundary. Moonquakes executes.
+
+Rain is the event. Call is the boundary.
 
 ## Goals
 
