@@ -89,6 +89,8 @@ static raincall_State *raincall_get_state(void) {
     return default_state;
 }
 
+static int raincall_push_array_reply(mq_State *L, redisReply *reply);
+
 static int raincall_push_reply(mq_State *L, redisReply *reply) {
     switch (reply->type) {
     case REDIS_REPLY_STATUS:
@@ -106,9 +108,23 @@ static int raincall_push_reply(mq_State *L, redisReply *reply) {
     case REDIS_REPLY_ERROR:
         mq_pushlstring(L, reply->str, reply->len);
         return -1;
+    case REDIS_REPLY_ARRAY:
+        return raincall_push_array_reply(L, reply);
     default:
         return raincall_raise(L, "RAIN.CALL: Redis reply type is not supported yet");
     }
+}
+
+static int raincall_push_array_reply(mq_State *L, redisReply *reply) {
+    mq_newtable(L);
+
+    for (size_t i = 0; i < reply->elements; i++) {
+        int pushed = raincall_push_reply(L, reply->element[i]);
+        if (pushed < 0) return pushed;
+        mq_seti(L, -2, (mq_Integer)i + 1);
+    }
+
+    return 1;
 }
 
 static int rain_call(mq_State *L) {
