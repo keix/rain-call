@@ -12,7 +12,7 @@ from the outside, by the Rain-Call host.
 Redis receives RESP.
 RAIN.CALL crosses the command boundary.
 Moonquakes executes.
-The Rain-Call host bridge mutates Redis state.
+Redis mutates its own state.
 ```
 
 ## Why Rain-Call?
@@ -30,7 +30,7 @@ Rain is the event. Call is the boundary.
 - Build the Moonquakes Lua 5.4 runtime as a neutral engine
 - Install `RAIN.CALL` as a host-provided capability — not as a Moonquakes built-in
 - Keep the original Redis Lua engine untouched during this phase
-- Eventually move `EVAL` onto the Moonquakes engine and remove Lua 5.1
+- Eventually remove the original Lua 5.1 scripting path
 
 ## Non-goals
 
@@ -57,7 +57,7 @@ Rain-Call host          installs the RAIN table
                         owns RAIN.CALL implementation
 ```
 
-`RAIN.CALL` is therefore not a Moonquakes built-in. It is a host-provided Lua library — a thin Lua wrapper (`rain.lua`) over a C function (`RAIN._call`) that the host installs into the Moonquakes state.
+`RAIN.CALL` is therefore not a Moonquakes built-in. It is a host-provided Lua function that forwards a Redis command name and arguments through the Rain-Call bridge.
 
 Without the host, `RAIN.CALL` fails explicitly:
 
@@ -71,44 +71,53 @@ That failure is correct behavior. Moonquakes does not assume any host.
 Phasing of the call sites:
 
 ```text
-Phase 1 (current):
+Phase 1:
   EVAL       -> Redis Lua 5.1 engine
-  RAIN.CALL  -> Moonquakes Lua 5.4 (with RAIN capability injected)
+  RAIN.CALL  -> Moonquakes Lua 5.4, with TCP Redis backend
 
-Phase 2 (planned, after the boundary is proven):
-  EVAL       -> Moonquakes Lua 5.4 (with RAIN capability injected)
+Phase 2:
   RAIN.CALL  -> Moonquakes Lua 5.4
-  (Redis Lua 5.1 engine removed)
+  Redis fork -> in-process Redis backend
+
+Phase 3:
+  Original Redis Lua 5.1 scripting path removed
 ```
 
-`EVAL` moves only after the Moonquakes engine boundary is proven by `RAIN.CALL`.
+The old scripting path is removed only after the Moonquakes engine boundary is proven by `RAIN.CALL`.
 
 ## Commands
 
 The v0 surface is deliberately minimal:
 
 ```text
-RAIN.LOAD <name> <source>     register a Moonquakes function under <name>
-RAIN.CALL <name> [arg...]     invoke a registered function
+RAIN.CALL <command> [arg...]
 ```
 
-The Redis-level `RAIN.CALL` command and the Lua-level `RAIN.CALL` function share a name on purpose: both express the same boundary, crossed from opposite sides.
+`RAIN.CALL` forwards a Redis command name and arguments through the Rain-Call host bridge.
 
-```text
-RAIN.CALL  (Redis command)   RESP -> Moonquakes pcall
-RAIN.CALL  (Lua function)    Moonquakes -> Redis state, via libraincall
-```
-
-Example:
+Examples:
 
 ```redis
-RAIN.LOAD incr "
-function main(key)
-  return RAIN.CALL('INCR', key)
-end
-"
+RAIN.CALL PING
+RAIN.CALL SET moon quake
+RAIN.CALL GET moon
+RAIN.CALL COMMAND LIST
+```
 
-RAIN.CALL incr counter
+From Lua, the same boundary is exposed as:
+
+```lua
+RAIN.CALL("PING")
+RAIN.CALL("SET", "moon", "quake")
+RAIN.CALL("GET", "moon")
+RAIN.CALL("COMMAND", "LIST")
+```
+
+The Redis-level `RAIN.CALL` command and the Lua-level `RAIN.CALL` function share a name on purpose: both express the same command boundary, crossed from opposite sides.
+
+```text
+RAIN.CALL  (Redis command)   RESP -> Moonquakes
+RAIN.CALL  (Lua function)    Moonquakes -> Redis command execution
 ```
 
 Internally:
@@ -116,16 +125,14 @@ Internally:
 ```text
 RESP
   -> command dispatch
-  -> libraincall handler
-  -> lookup loaded function
   -> Moonquakes pcall
        Lua chunk calls RAIN.CALL(...)
-       rain.lua delegates to RAIN._call (host C function)
-       libraincall executes against Redis state
+       libraincall sends the command through a Redis backend
+       Redis executes the command
   -> RESP reply
 ```
 
-Later versions may add `RAIN.DROP <name>` and `RAIN.LIST`.
+Later versions may add function loading or registry commands. They are not part of the v0 command surface.
 
 ## Components
 
@@ -139,23 +146,25 @@ libmoonquakes.so   Moonquakes VM engine
 
 libraincall.so     Rain-Call host capability
                    uses mq_* C API to install the RAIN table
-                   provides RAIN._call as a C function
-                   owns the bridge to Redis internals
-
-rain.lua           Lua-side wrapper
-                   defines RAIN.CALL on top of RAIN._call
-                   adds type checks and a "host bridge not installed" path
+                   provides RAIN.CALL as a C function
+                   owns the bridge to Redis command execution
 ```
 
-The boundary is enforced by direction:
+During standalone development:
 
 ```text
-Redis loads libraincall.
-libraincall creates a Moonquakes state via libmoonquakes.
-libraincall installs the RAIN capability into that state.
-libraincall loads rain.lua.
-RAIN.CALL runs inside Moonquakes,
-  but the actual Redis call goes back out through libraincall.
+Moonquakes CLI loads libraincall through package.loadlib.
+libraincall installs the RAIN capability into the current Moonquakes state.
+RAIN.CALL calls Redis through the Rain-Call TCP backend.
+```
+
+Inside the Redis fork:
+
+```text
+Redis initializes the Rain-Call host.
+Rain-Call owns or receives a Moonquakes state.
+Rain-Call installs the RAIN capability.
+RAIN.CALL crosses back into Redis command execution.
 ```
 
 The same shape extends to future hosts. Each host installs its own capability without touching Moonquakes core:
@@ -187,7 +196,8 @@ socket events
   -> command dispatch
   -> libraincall host
   -> Moonquakes engine (with RAIN capability injected)
-  -> memory mutation
+  -> Redis command execution
+  -> memory mutation by Redis
 ```
 
 The goal is to make that boundary explicit, then prove it under load, then collapse the old path onto it.
@@ -203,10 +213,10 @@ Then move the call site.
 Stated as the end-state of the fork:
 
 ```text
-Redis keeps its Lua.
+Redis keeps its original Lua path during the proving phase.
 Moonquakes gets its own call.
 Rain-Call host owns the Redis bridge.
-When the boundary is proven, EVAL can move.
+When the boundary is proven, the old Lua path can be removed.
 ```
 
 ## Status
@@ -224,7 +234,8 @@ Milestones:
 3. Verify `redis-cli PING`.
 4. Build the Moonquakes engine alongside the existing Lua 5.1 engine.
 5. Install the Rain-Call host capability and add `RAIN.CALL` as its first caller.
-6. Move `EVAL` onto the Moonquakes engine and remove Lua 5.1.
+6. Prove Redis command execution through `RAIN.CALL`.
+7. Remove the original Lua 5.1 scripting path.
 
 ## License
 
