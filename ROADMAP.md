@@ -114,6 +114,19 @@ The clean long-term shape is state injection from the C host. The loadlib shim
 exists so standalone Moonquakes scripts can keep proving the boundary before
 the final host wiring is available.
 
+Current backend shape:
+
+```text
+RAIN.CALL(cmd, ...)
+  -> raincall_Backend.call()
+  -> raincall_Reply
+  -> Lua value
+```
+
+Backends do not write to the Moonquakes stack directly. The TCP backend copies
+hiredis `redisReply` values into `raincall_Reply`; the future in-process
+backend should copy captured Redis replies into the same intermediate type.
+
 ### Phase II-c: Redis Reply to Lua Value Conversion
 
 Status: in progress.

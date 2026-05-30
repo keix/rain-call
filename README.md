@@ -10,15 +10,23 @@ RAIN.FALL enters Moonquakes.
 RAIN.CALL exits Moonquakes into Redis.
 ```
 
-The Redis-facing capability is not built into Moonquakes. It is installed
-from the outside, by the Rain-Call host.
+The Redis-facing capability is not built into Moonquakes.  
+It is installed from the outside, by the Rain-Call host.
+
+## Execution flow
+Moonquakes executes Lua, but Redis remains the owner of Redis state.  
+When Lua code needs Redis data or mutation, the request goes through Redis command execution.
 
 ```text
-Redis receives RESP.
-RAIN.FALL crosses into Moonquakes.
-Moonquakes executes.
-RAIN.CALL crosses back into Redis command execution.
-Redis mutates its own state.
+Redis client
+  -> RESP
+  -> RAIN.FALL
+  -> Moonquakes
+      -> RAIN.CALL(...)
+      -> Redis command execution
+      -> Redis state
+  -> Lua return value
+  -> Redis reply
 ```
 
 ## Why Rain-Call?
@@ -190,46 +198,7 @@ Moonquakes core stays clean.
 
 ## Philosophy
 
-Rain-Call treats Redis as a well-structured POSIX daemon:
-
-```text
-socket events
-  -> RESP
-  -> command dispatch
-  -> memory mutation
-```
-
-Moonquakes adds another layer, mediated by the Rain-Call host:
-
-```text
-socket events
-  -> RESP
-  -> command dispatch
-  -> RAIN.FALL
-  -> libraincall host
-  -> Moonquakes engine (with RAIN capability injected)
-  -> Redis command execution
-  -> memory mutation by Redis
-```
-
-The goal is to make that boundary explicit, then prove it under load, then collapse the old path onto it.
-
-The migration rule is:
-
-```text
-Do not replace Lua first.
-Build the Moonquakes engine beside it.
-Then move the call site.
-```
-
-Stated as the end-state of the fork:
-
-```text
-Redis keeps its original Lua path during the proving phase.
-Moonquakes gets its own call.
-Rain-Call host owns the Redis bridge.
-When the boundary is proven, the old Lua path can be removed.
-```
+When rain falls, the moon quakes. When the moon quakes, rain calls.
 
 ## Status
 

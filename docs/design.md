@@ -86,6 +86,19 @@ libraincall.so
   owns Redis bridge
 ```
 
+`RAIN.CALL` is split into three layers:
+
+```text
+RAIN.CALL(cmd, ...)
+  -> raincall_Backend.call()
+  -> raincall_Reply
+  -> Lua value
+```
+
+Backends do not push directly onto the Moonquakes stack. They only produce
+`raincall_Reply`. This keeps TCP and future in-process command execution behind
+the same reply conversion path.
+
 ## 6. Current Standalone Path
 
 The current proven path is Moonquakes to Redis over TCP:
@@ -158,6 +171,11 @@ that backend with an in-process backend behind `raincall_State`.
 `RAIN.FALL` when it points at a separate Redis backend. It must not synchronously
 call back into the same Redis event loop over TCP, because the current command
 handler is already running and the server cannot process the nested request.
+
+```text
+TCP proves the protocol boundary.
+In-process proves the embedded boundary.
+```
 
 ## 9. Removed Or Non-goal Compatibility
 
