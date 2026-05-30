@@ -1,0 +1,35 @@
+{
+    "RAIN.FALL": {
+        "summary": "Runs Lua source inside Moonquakes.",
+        "complexity": "Depends on the source that is executed.",
+        "group": "scripting",
+        "since": "8.8.0",
+        "arity": -2,
+        "function": "rainFallCommand",
+        "command_flags": [
+            "NOSCRIPT",
+            "SKIP_MONITOR",
+            "MAY_REPLICATE",
+            "NO_MANDATORY_KEYS",
+            "STALE"
+        ],
+        "acl_categories": [
+            "SCRIPTING"
+        ],
+        "arguments": [
+            {
+                "name": "source",
+                "type": "string"
+            },
+            {
+                "name": "arg",
+                "type": "string",
+                "optional": true,
+                "multiple": true
+            }
+        ],
+        "reply_schema": {
+            "description": "Return value depends on the Lua source that is executed."
+        }
+    }
+}
