@@ -89,7 +89,8 @@ static raincall_State *raincall_get_state(void) {
     return default_state;
 }
 
-static int raincall_push_array_reply(mq_State *L, redisReply *reply);
+static int raincall_push_aggregate_reply(mq_State *L, redisReply *reply);
+static int raincall_push_map_reply(mq_State *L, redisReply *reply);
 
 static int raincall_push_reply(mq_State *L, redisReply *reply) {
     switch (reply->type) {
@@ -102,6 +103,12 @@ static int raincall_push_reply(mq_State *L, redisReply *reply) {
     case REDIS_REPLY_INTEGER:
         mq_pushinteger(L, (mq_Integer)reply->integer);
         return 1;
+    case REDIS_REPLY_DOUBLE:
+        mq_pushnumber(L, (mq_Number)reply->dval);
+        return 1;
+    case REDIS_REPLY_BOOL:
+        mq_pushboolean(L, reply->integer != 0);
+        return 1;
     case REDIS_REPLY_NIL:
         mq_pushnil(L);
         return 1;
@@ -109,19 +116,44 @@ static int raincall_push_reply(mq_State *L, redisReply *reply) {
         mq_pushlstring(L, reply->str, reply->len);
         return -1;
     case REDIS_REPLY_ARRAY:
-        return raincall_push_array_reply(L, reply);
+    case REDIS_REPLY_SET:
+    case REDIS_REPLY_ATTR:
+    case REDIS_REPLY_PUSH:
+        return raincall_push_aggregate_reply(L, reply);
+    case REDIS_REPLY_MAP:
+        return raincall_push_map_reply(L, reply);
     default:
         return raincall_raise(L, "RAIN.CALL: Redis reply type is not supported yet");
     }
 }
 
-static int raincall_push_array_reply(mq_State *L, redisReply *reply) {
+static int raincall_push_aggregate_reply(mq_State *L, redisReply *reply) {
     mq_newtable(L);
 
     for (size_t i = 0; i < reply->elements; i++) {
         int pushed = raincall_push_reply(L, reply->element[i]);
         if (pushed < 0) return pushed;
         mq_seti(L, -2, (mq_Integer)i + 1);
+    }
+
+    return 1;
+}
+
+static int raincall_push_map_reply(mq_State *L, redisReply *reply) {
+    mq_newtable(L);
+
+    for (size_t i = 0, pair = 1; i + 1 < reply->elements; i += 2, pair++) {
+        mq_newtable(L);
+
+        int pushed = raincall_push_reply(L, reply->element[i]);
+        if (pushed < 0) return pushed;
+        mq_setfield(L, -2, "key");
+
+        pushed = raincall_push_reply(L, reply->element[i + 1]);
+        if (pushed < 0) return pushed;
+        mq_setfield(L, -2, "value");
+
+        mq_seti(L, -2, (mq_Integer)pair);
     }
 
     return 1;
