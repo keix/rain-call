@@ -116,9 +116,9 @@ the final host wiring is available.
 
 ### Phase II-c: Redis Reply to Lua Value Conversion
 
-Status: planned.
+Status: in progress.
 
-Initial conversion target:
+Implemented conversion:
 
 ```text
 Redis status   -> Lua string
@@ -126,21 +126,26 @@ Redis bulk     -> Lua string
 Redis integer  -> Lua integer
 Redis nil      -> Lua nil
 Redis array    -> Lua table
-```
-
-Later conversion target:
-
-```text
-RESP3 map      -> Lua table
-RESP3 set      -> Lua table
+RESP3 set      -> Lua array table
+RESP3 push     -> Lua array table
+RESP3 attr     -> Lua array table
+RESP3 map      -> Lua array of { key = ..., value = ... } pairs
 RESP3 bool     -> Lua boolean
 RESP3 double   -> Lua number
-RESP3 verbatim -> Lua string or tagged table
-RESP3 bignum   -> Lua string or tagged table
+RESP3 verbatim -> Lua string
+RESP3 bignum   -> Lua string
 ```
 
-The first pass should only implement the reply types needed to prove normal
-command execution. Rich RESP3 semantics can land after the basic path is stable.
+Remaining conversion target:
+
+```text
+RESP3 map      -> direct keyed Lua table, once mq_settable exists
+RESP3 verbatim -> tagged table, if scripts need content type metadata
+RESP3 bignum   -> tagged table, if scripts need integer domain metadata
+```
+
+The first pass favors command execution over preserving every RESP3 semantic.
+Rich RESP3 metadata can land after the basic path is stable.
 
 ### Phase II-d: Redis Error to Lua Error
 
@@ -157,22 +162,57 @@ This keeps Lua scripts from treating Redis command failures as normal values by
 default. A later `RAIN.PCALL` can return errors as values if the scripting model
 needs it.
 
-## Phase III: In-Process Redis Backend
+## Phase III: Redis Protocol Entry
+
+Status: in progress.
+
+Goal:
+
+```text
+RAIN.FALL command
+  -> Moonquakes pcall
+  -> Redis client reply
+```
+
+This phase proves the reverse direction: Redis protocol input can enter
+Moonquakes and return a Redis reply.
+
+Implemented surface:
+
+- `RAIN.FALL <lua-source> [arg...]`
+- server-level Moonquakes state for the first pass
+- Redis argv after the source is passed as Lua varargs
+- Lua return values convert back to Redis replies
+- Lua errors convert to Redis errors
+
+Current return conversion:
+
+```text
+Lua nil      -> Redis null
+Lua string   -> Redis bulk string
+Lua integer  -> Redis integer
+Lua number   -> Redis double
+Lua boolean  -> Redis boolean
+Lua array    -> Redis array
+Lua error    -> Redis error
+```
+
+## Phase IV: In-Process Redis Backend
 
 Status: planned.
 
 Goal:
 
 ```text
-Redis command
+RAIN.FALL command
   -> Moonquakes pcall
   -> RAIN.CALL(cmd, ...)
   -> in-process Redis backend
   -> Redis state mutation
 ```
 
-The TCP backend proves the external contract. The in-process backend will be
-the real Redis fork integration.
+The TCP backend proves the external contract. The in-process backend is the
+real Redis fork integration.
 
 Expected split:
 
@@ -192,15 +232,25 @@ RAIN.CALL(cmd, ...)
 
 Only the backend behind `raincall_State` should change.
 
-## Phase IV: Redis Command Surface
+TCP backend caveat:
 
-Status: planned.
+```text
+RAIN.FALL on Redis A
+  -> RAIN.CALL over TCP to Redis B
+```
+
+works for a separate backend. Synchronously calling Redis A from inside Redis A
+over TCP can deadlock the event loop, so same-process callbacks require the
+planned in-process backend.
+
+## Phase V: Redis Command Surface
+
+Status: in progress.
 
 Target Redis commands:
 
 ```text
-RAIN.LOAD <name> <source>
-RAIN.CALL <name> [arg...]
+RAIN.FALL <lua-source> [arg...]
 ```
 
 Purpose:
@@ -208,6 +258,7 @@ Purpose:
 ```text
 RESP
   -> Redis command dispatch
+  -> RAIN.FALL
   -> Rain-Call host
   -> Moonquakes pcall
   -> RAIN.CALL back into Redis
@@ -216,30 +267,33 @@ RESP
 Possible later commands:
 
 ```text
+RAIN.LOAD <name> <source>
+RAIN.RUN <name> [arg...]
 RAIN.DROP <name>
 RAIN.LIST
 ```
 
-## Phase V: EVAL Migration
+`RAIN.CALL` remains reserved for the Lua-side Redis command boundary.
+
+## Phase V: Lua 5.1 Path Removal
 
 Status: planned.
 
 Goal:
 
 ```text
-EVAL
-  -> Moonquakes Lua 5.4
-  -> Rain-Call host capability
+Remove Redis Lua 5.1 compatibility path
+Keep Rain-Call native scripting on RAIN.FALL / RAIN.CALL
 ```
 
-This phase starts only after `RAIN.CALL` has proven the host boundary, backend
+This phase starts only after `RAIN.FALL` has proven the host boundary, backend
 state model, reply conversion, and error behavior.
 
 End state:
 
 ```text
 Redis Lua 5.1 path removed
-Moonquakes Lua 5.4 owns server-side scripting
+Moonquakes Lua 5.4 owns Rain-Call-native server-side scripting
 Rain-Call host owns Redis capability injection
 ```
 
