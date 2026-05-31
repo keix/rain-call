@@ -152,7 +152,7 @@ redis-server
 
 That proves re-entry and Moonquakes value to Redis reply conversion.
 
-The final Redis fork path adds the callback into Redis command execution:
+The Redis fork path adds the callback into Redis command execution:
 
 ```text
 redis-server
@@ -164,8 +164,8 @@ redis-server
   -> Redis mutates its own state
 ```
 
-Standalone development uses the TCP backend. The Redis fork path should replace
-that backend with an in-process backend behind `raincall_State`.
+Standalone development uses the TCP backend. The Redis fork path uses an
+in-process backend behind `raincall_State`.
 
 `RAIN.CALL` may use the TCP backend from standalone Moonquakes, or from
 `RAIN.FALL` when it points at a separate Redis backend. It must not synchronously
@@ -176,6 +176,17 @@ handler is already running and the server cannot process the nested request.
 TCP proves the protocol boundary.
 In-process proves the embedded boundary.
 ```
+
+The current in-process backend is intentionally small. It allows only:
+
+```text
+PING
+GET
+SET
+```
+
+Other commands, including `RAIN.FALL` recursion through `RAIN.CALL`, are
+rejected until reply capture and command execution policy are expanded.
 
 ## 9. Removed Or Non-goal Compatibility
 

@@ -119,9 +119,10 @@ RAIN.FALL "return RAIN.CALL('SET', 'moon', 'quake')"
 RAIN.FALL "return RAIN.CALL('GET', 'moon')"
 ```
 
-During the TCP backend phase, these callback examples should target a separate
-Redis backend. The final Redis fork path replaces the TCP callback with an
-in-process backend so `RAIN.CALL` can safely call back into the same server.
+From standalone Moonquakes, `RAIN.CALL` uses the TCP backend. Inside
+`RAIN.FALL`, the Redis fork uses an in-process backend so `RAIN.CALL` can call
+back into the same server without blocking the event loop. The current
+in-process backend is intentionally small and allows `PING`, `GET`, and `SET`.
 
 From Lua, Redis command execution is exposed as:
 

@@ -212,7 +212,7 @@ Lua error    -> Redis error
 
 ## Phase IV: In-Process Redis Backend
 
-Status: planned.
+Status: in progress.
 
 Goal:
 
@@ -226,6 +226,24 @@ RAIN.FALL command
 
 The TCP backend proves the external contract. The in-process backend is the
 real Redis fork integration.
+
+Implemented v0 allowlist:
+
+```text
+PING
+GET
+SET
+```
+
+This proves same-process callbacks without TCP:
+
+```redis
+RAIN.FALL "return RAIN.CALL('PING')"
+RAIN.FALL "RAIN.CALL('SET','moon','quake'); return RAIN.CALL('GET','moon')"
+```
+
+Everything else is rejected by the in-process v0 backend for now. This includes
+recursive `RAIN.CALL('RAIN.FALL', ...)`.
 
 Expected split:
 
@@ -254,7 +272,7 @@ RAIN.FALL on Redis A
 
 works for a separate backend. Synchronously calling Redis A from inside Redis A
 over TCP can deadlock the event loop, so same-process callbacks require the
-planned in-process backend.
+in-process backend.
 
 ## Phase V: Redis Command Surface
 
