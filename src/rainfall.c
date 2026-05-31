@@ -1,29 +1,20 @@
 /*
  * RAIN.FALL: Redis protocol entry into Moonquakes.
  *
- * v0 deliberately keeps RAIN.CALL on the TCP backend. This command proves the
- * reverse boundary first: Redis -> Moonquakes -> Redis client reply.
+ * RAIN.CALL uses an in-process backend when installed by redis-server.
  */
 
 #include "server.h"
 
 #include "moonquakes.h"
 #include "raincall.h"
+#include "raincall_inprocess.h"
 
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
 static mq_State *rainfall_state = NULL;
 static raincall_State *rainfall_raincall_state = NULL;
-
-typedef struct rainFallBackend {
-    raincall_Backend base;
-    client *caller;
-    char error[256];
-} rainFallBackend;
-
-static rainFallBackend rainfall_backend = {0};
+static raincall_InprocessBackend *rainfall_backend = NULL;
 
 typedef struct rainFallReader {
     const char *source;
@@ -45,140 +36,20 @@ static const char *rainFallReadChunk(mq_State *L, void *ud, size_t *size) {
     return reader->source;
 }
 
-static raincall_Reply *rainFallReplyNew(raincall_ReplyType type) {
-    raincall_Reply *reply = zcalloc(sizeof(*reply));
-    if (reply == NULL) return NULL;
-    reply->type = type;
-    reply->free_alloc = zfree;
-    return reply;
-}
-
-static raincall_Reply *rainFallReplyString(raincall_ReplyType type, const char *s,
-                                           size_t len) {
-    raincall_Reply *reply = rainFallReplyNew(type);
-    if (reply == NULL) return NULL;
-    reply->str = zmalloc(len + 1);
-    if (reply->str == NULL) {
-        raincall_reply_free(reply);
-        return NULL;
-    }
-    memcpy(reply->str, s, len);
-    reply->str[len] = '\0';
-    reply->len = len;
-    return reply;
-}
-
-static raincall_Reply *rainFallReplyCString(raincall_ReplyType type, const char *s) {
-    return rainFallReplyString(type, s, strlen(s));
-}
-
-static int rainFallBackendError(rainFallBackend *backend, const char *err) {
-    if (err == NULL || err[0] == '\0') err = "unknown error";
-    snprintf(backend->error, sizeof(backend->error), "%s", err);
-    return -1;
-}
-
-static int rainFallCommandIs(const char *arg, size_t len, const char *cmd) {
-    size_t cmd_len = strlen(cmd);
-    return len == cmd_len && !strncasecmp(arg, cmd, len);
-}
-
-static int rainFallBackendCall(raincall_Backend *base, int argc, const char **argv,
-                               size_t *argvlen, raincall_Reply **out) {
-    rainFallBackend *backend = (rainFallBackend *)base;
-
-    *out = NULL;
-
-    if (backend->caller == NULL) {
-        return rainFallBackendError(backend, "in-process backend has no caller");
-    }
-    if (argc < 1 || argv[0] == NULL) {
-        return rainFallBackendError(backend, "RAIN.CALL: expected command name");
-    }
-
-    if (rainFallCommandIs(argv[0], argvlen[0], "PING")) {
-        if (argc == 1) {
-            *out = rainFallReplyCString(RAINCALL_REPLY_STATUS, "PONG");
-        } else if (argc == 2) {
-            *out = rainFallReplyString(RAINCALL_REPLY_STRING, argv[1], argvlen[1]);
-        } else {
-            return rainFallBackendError(backend, "wrong number of arguments for 'PING'");
-        }
-        return *out != NULL ? 0 : rainFallBackendError(backend, "out of memory");
-    }
-
-    if (rainFallCommandIs(argv[0], argvlen[0], "GET")) {
-        robj *key;
-        kvobj *kv;
-        robj *value;
-        robj *decoded;
-
-        if (argc != 2) {
-            return rainFallBackendError(backend, "wrong number of arguments for 'GET'");
-        }
-
-        key = createStringObject(argv[1], argvlen[1]);
-        kv = lookupKeyRead(backend->caller->db, key);
-        decrRefCount(key);
-
-        if (kv == NULL) {
-            *out = rainFallReplyNew(RAINCALL_REPLY_NIL);
-            return *out != NULL ? 0 : rainFallBackendError(backend, "out of memory");
-        }
-
-        value = (robj *)kv;
-        if (value->type != OBJ_STRING) {
-            return rainFallBackendError(backend, "WRONGTYPE Operation against a key holding the wrong kind of value");
-        }
-
-        decoded = getDecodedObject(value);
-        *out = rainFallReplyString(RAINCALL_REPLY_STRING, decoded->ptr, sdslen(decoded->ptr));
-        decrRefCount(decoded);
-        return *out != NULL ? 0 : rainFallBackendError(backend, "out of memory");
-    }
-
-    if (rainFallCommandIs(argv[0], argvlen[0], "SET")) {
-        robj *key;
-        robj *value;
-
-        if (argc != 3) {
-            return rainFallBackendError(backend, "wrong number of arguments for 'SET'");
-        }
-
-        key = createStringObject(argv[1], argvlen[1]);
-        value = createStringObject(argv[2], argvlen[2]);
-        setKey(backend->caller, backend->caller->db, key, &value, 0);
-        notifyKeyspaceEvent(NOTIFY_STRING, "set", key, backend->caller->db->id);
-        server.dirty++;
-        decrRefCount(key);
-
-        *out = rainFallReplyCString(RAINCALL_REPLY_STATUS, "OK");
-        return *out != NULL ? 0 : rainFallBackendError(backend, "out of memory");
-    }
-
-    return rainFallBackendError(backend, "command is not allowed by the in-process v0 backend");
-}
-
-static const char *rainFallBackendLastError(raincall_Backend *base) {
-    rainFallBackend *backend = (rainFallBackend *)base;
-    return backend->error;
-}
-
-static void rainFallBackendClose(raincall_Backend *base) {
-    UNUSED(base);
-}
-
 static mq_State *rainFallGetState(void) {
     if (rainfall_state != NULL) return rainfall_state;
 
     rainfall_state = mq_newstate();
     if (rainfall_state == NULL) return NULL;
 
-    rainfall_backend.base.call = rainFallBackendCall;
-    rainfall_backend.base.error = rainFallBackendLastError;
-    rainfall_backend.base.close = rainFallBackendClose;
+    rainfall_backend = raincall_inprocess_backend_new();
+    if (rainfall_backend == NULL) {
+        mq_close(rainfall_state);
+        rainfall_state = NULL;
+        return NULL;
+    }
 
-    rainfall_raincall_state = raincall_open_backend(&rainfall_backend.base);
+    rainfall_raincall_state = raincall_open_backend(raincall_inprocess_backend_base(rainfall_backend));
     if (rainfall_raincall_state == NULL) {
         mq_close(rainfall_state);
         rainfall_state = NULL;
@@ -256,7 +127,7 @@ void rainFallCommand(client *c) {
         return;
     }
 
-    rainfall_backend.caller = c;
+    raincall_inprocess_backend_set_caller(rainfall_backend, c);
     base_top = mq_gettop(L);
     reader.source = c->argv[1]->ptr;
     reader.len = sdslen(c->argv[1]->ptr);
@@ -266,7 +137,7 @@ void rainFallCommand(client *c) {
     if (status != MQ_OK) {
         addReplyError(c, "RAIN.FALL: failed to load source");
         mq_settop(L, base_top);
-        rainfall_backend.caller = NULL;
+        raincall_inprocess_backend_set_caller(rainfall_backend, NULL);
         return;
     }
 
@@ -285,11 +156,11 @@ void rainFallCommand(client *c) {
             addReplyError(c, "RAIN.FALL: Lua error");
         }
         mq_settop(L, base_top);
-        rainfall_backend.caller = NULL;
+        raincall_inprocess_backend_set_caller(rainfall_backend, NULL);
         return;
     }
 
     rainFallReplyFromLua(c, L);
     mq_settop(L, base_top);
-    rainfall_backend.caller = NULL;
+    raincall_inprocess_backend_set_caller(rainfall_backend, NULL);
 }
