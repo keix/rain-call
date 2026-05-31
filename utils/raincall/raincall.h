@@ -40,6 +40,7 @@ struct raincall_Reply {
     double number;
     size_t elements;
     raincall_Reply **element;
+    void (*free_alloc)(void *ptr);
 };
 
 struct raincall_Backend {
@@ -50,6 +51,7 @@ struct raincall_Backend {
 };
 
 raincall_State *raincall_open(const char *host, int port);
+raincall_State *raincall_open_backend(raincall_Backend *backend);
 int raincall_install_state(mq_State *L, raincall_State *R);
 int raincall_install(mq_State *L);
 void raincall_close(raincall_State *R);

@@ -48,13 +48,16 @@ static raincall_Reply *raincall_reply_new(raincall_ReplyType type) {
 }
 
 void raincall_reply_free(raincall_Reply *reply) {
+    void (*free_alloc)(void *ptr);
+
     if (reply == NULL) return;
+    free_alloc = reply->free_alloc != NULL ? reply->free_alloc : free;
     for (size_t i = 0; i < reply->elements; i++) {
         raincall_reply_free(reply->element[i]);
     }
-    free(reply->element);
-    free(reply->str);
-    free(reply);
+    free_alloc(reply->element);
+    free_alloc(reply->str);
+    free_alloc(reply);
 }
 
 static int raincall_raise(mq_State *L, const char *msg) {
@@ -234,6 +237,18 @@ raincall_State *raincall_open(const char *host, int port) {
         return NULL;
     }
 
+    return R;
+}
+
+raincall_State *raincall_open_backend(raincall_Backend *backend) {
+    raincall_State *R;
+
+    if (backend == NULL) return NULL;
+
+    R = calloc(1, sizeof(*R));
+    if (R == NULL) return NULL;
+
+    R->backend = backend;
     return R;
 }
 
