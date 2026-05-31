@@ -177,16 +177,21 @@ TCP proves the protocol boundary.
 In-process proves the embedded boundary.
 ```
 
-The current in-process backend is intentionally small. It allows only:
+The current in-process backend uses an isolated internal client:
 
 ```text
-PING
-GET
-SET
+RAIN.CALL(cmd, ...)
+  -> internal Redis client
+  -> lookupCommand / policy checks
+  -> call()
+  -> capture RESP reply
+  -> CallReply
+  -> raincall_Reply
+  -> Lua value
 ```
 
-Other commands, including `RAIN.FALL` recursion through `RAIN.CALL`, are
-rejected until reply capture and command execution policy are expanded.
+Dangerous or recursive commands, including `RAIN.FALL` through `RAIN.CALL`, are
+rejected by policy.
 
 ## 9. Removed Or Non-goal Compatibility
 

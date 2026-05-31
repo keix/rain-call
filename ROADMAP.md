@@ -227,23 +227,31 @@ RAIN.FALL command
 The TCP backend proves the external contract. The in-process backend is the
 real Redis fork integration.
 
-Implemented v0 allowlist:
+Implemented path:
 
 ```text
-PING
-GET
-SET
+RAIN.CALL(cmd, ...)
+  -> isolated internal Redis client
+  -> Redis command lookup and policy checks
+  -> call()
+  -> captured RESP reply
+  -> CallReply
+  -> raincall_Reply
+  -> Lua value
 ```
 
-This proves same-process callbacks without TCP:
+This proves same-process callbacks without TCP or hand-written Redis command
+logic:
 
 ```redis
 RAIN.FALL "return RAIN.CALL('PING')"
 RAIN.FALL "RAIN.CALL('SET','moon','quake'); return RAIN.CALL('GET','moon')"
+RAIN.FALL "return RAIN.CALL('COMMAND','LIST')"
 ```
 
-Everything else is rejected by the in-process v0 backend for now. This includes
-recursive `RAIN.CALL('RAIN.FALL', ...)`.
+The backend uses a conservative denylist for recursive, scripting,
+transactional, blocking, administrative, pub/sub, module, auth, config, and
+connection-management commands.
 
 Expected split:
 
