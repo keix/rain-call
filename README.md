@@ -1,26 +1,41 @@
 # Rain-Call
 
-Rain-Call is an experimental fork of Redis 8.
+Rain-Call is an experimental Redis fork powered by Moonquakes, a Lua 5.4
+runtime.
 
-It embeds Moonquakes — a Lua 5.4 scripting engine — beside the existing
-Redis Lua engine, and over time moves the existing call sites onto it.
-
-The Redis-facing capability is not built into Moonquakes. It is installed
-from the outside, by the Rain-Call host.
+It explores a new command boundary:
 
 ```text
-Redis receives RESP.
-RAIN.CALL crosses the command boundary.
-Moonquakes executes.
-Redis mutates its own state.
+RAIN.FALL enters Moonquakes.
+RAIN.CALL exits Moonquakes into Redis.
+```
+
+The Redis-facing capability is not built into Moonquakes.  
+It is installed from the outside, by the Rain-Call host.
+
+## Execution flow
+Moonquakes executes Lua, but Redis remains the owner of Redis state.  
+When Lua code needs Redis data or mutation, the request goes through Redis command execution.
+
+```text
+Redis client
+  -> RESP
+  -> RAIN.FALL
+  -> Moonquakes
+      -> RAIN.CALL(...)
+      -> Redis command execution
+      -> Redis state
+  -> Lua return value
+  -> Redis reply
 ```
 
 ## Why Rain-Call?
 
 Rain-Call names the moment when falling input becomes a call.
 
-Redis receives bytes. RESP gives them structure.  
-`RAIN.CALL` crosses the command boundary. Moonquakes executes.
+Redis receives bytes.  
+RESP gives them structure.  
+Moonquakes gives them execution.
 
 Rain is the event. Call is the boundary.
 
@@ -68,55 +83,42 @@ RAIN.CALL("PING")
 
 That failure is correct behavior. Moonquakes does not assume any host.
 
-Phasing of the call sites:
-
-```text
-Phase 1:
-  EVAL       -> Redis Lua 5.1 engine
-  RAIN.CALL  -> Moonquakes Lua 5.4, with TCP Redis backend
-
-Phase 2:
-  RAIN.CALL  -> Moonquakes Lua 5.4
-  Redis fork -> in-process Redis backend
-
-Phase 3:
-  Original Redis Lua 5.1 scripting path removed
-```
-
-The old scripting path is removed only after the Moonquakes engine boundary is proven by `RAIN.CALL`.
+Rain-Call keeps the original Redis Lua path separate while the Moonquakes boundary is being proven. `RAIN.FALL` and `RAIN.CALL` are Rain-Call-native entry points, not compatibility wrappers for Redis Lua scripting.
 
 ## Commands
 
 The v0 surface is deliberately minimal:
 
 ```text
-RAIN.CALL <command> [arg...]
+RAIN.FALL <lua-source> [arg...]
 ```
 
-`RAIN.CALL` forwards a Redis command name and arguments through the Rain-Call host bridge.
+`RAIN.FALL` enters Moonquakes from the Redis protocol side.  
 
 Examples:
 
 ```redis
-RAIN.CALL PING
-RAIN.CALL SET moon quake
-RAIN.CALL GET moon
-RAIN.CALL COMMAND LIST
+RAIN.FALL "return RAIN.CALL('PING')"
+RAIN.FALL "return RAIN.CALL('SET', 'moon', 'quake')"
+RAIN.FALL "return RAIN.CALL('GET', 'moon')"
 ```
 
-From Lua, the same boundary is exposed as:
+From standalone Moonquakes, `RAIN.CALL` uses the TCP backend. Inside `RAIN.FALL`, the Redis fork uses an in-process backend so `RAIN.CALL` can call back into the same server without blocking the event loop.
+
+The in-process backend executes Redis commands through an isolated internal client, captures the Redis reply, and converts it through the shared `raincall_Reply` path.
+
+From Lua, Redis command execution is exposed as:
 
 ```lua
 RAIN.CALL("PING")
 RAIN.CALL("SET", "moon", "quake")
 RAIN.CALL("GET", "moon")
-RAIN.CALL("COMMAND", "LIST")
 ```
 
-The Redis-level `RAIN.CALL` command and the Lua-level `RAIN.CALL` function share a name on purpose: both express the same command boundary, crossed from opposite sides.
+`RAIN.CALL` is reserved for Lua code running inside Moonquakes.  
 
 ```text
-RAIN.CALL  (Redis command)   RESP -> Moonquakes
+RAIN.FALL  (Redis command)   RESP -> Moonquakes
 RAIN.CALL  (Lua function)    Moonquakes -> Redis command execution
 ```
 
@@ -125,10 +127,11 @@ Internally:
 ```text
 RESP
   -> command dispatch
+  -> RAIN.FALL
   -> Moonquakes pcall
        Lua chunk calls RAIN.CALL(...)
-       libraincall sends the command through a Redis backend
-       Redis executes the command
+       raincall_Backend executes the command
+       Redis executes the command through TCP or an internal client
   -> RESP reply
 ```
 
@@ -147,7 +150,11 @@ libmoonquakes.so   Moonquakes VM engine
 libraincall.so     Rain-Call host capability
                    uses mq_* C API to install the RAIN table
                    provides RAIN.CALL as a C function
-                   owns the bridge to Redis command execution
+                   owns the backend-independent reply conversion
+
+TCP backend        standalone Moonquakes -> external Redis
+
+in-process backend Redis fork -> isolated internal client -> call()
 ```
 
 During standalone development:
@@ -161,65 +168,23 @@ RAIN.CALL calls Redis through the Rain-Call TCP backend.
 Inside the Redis fork:
 
 ```text
-Redis initializes the Rain-Call host.
-Rain-Call owns or receives a Moonquakes state.
-Rain-Call installs the RAIN capability.
-RAIN.CALL crosses back into Redis command execution.
+Redis initializes a Moonquakes state for RAIN.FALL.
+Rain-Call installs the RAIN capability with an in-process backend.
+RAIN.CALL executes Redis commands through an isolated internal client.
+Redis replies are captured and converted through raincall_Reply.
 ```
 
-The same shape extends to future hosts. Each host installs its own capability without touching Moonquakes core:
-
-```text
-libraincall.so       installs RAIN.CALL                  (Redis)
-libhowlingmoon.so    installs HTTP / upstream capability (nginx)
-libfragilemoon.so    installs Fragile handler capability
-```
+The internal backend does not reuse the outer Redis client context. It creates
+an isolated command context, runs Redis command execution, captures the reply,
+and returns it to Moonquakes as a Lua value.
 
 Moonquakes core stays clean.
 
 ## Philosophy
 
-Rain-Call treats Redis as a well-structured POSIX daemon:
+When rain falls, the moon quakes. When the moon quakes, rain calls.
 
-```text
-socket events
-  -> RESP
-  -> command dispatch
-  -> memory mutation
-```
-
-Moonquakes adds another layer, mediated by the Rain-Call host:
-
-```text
-socket events
-  -> RESP
-  -> command dispatch
-  -> libraincall host
-  -> Moonquakes engine (with RAIN capability injected)
-  -> Redis command execution
-  -> memory mutation by Redis
-```
-
-The goal is to make that boundary explicit, then prove it under load, then collapse the old path onto it.
-
-The migration rule is:
-
-```text
-Do not replace Lua first.
-Build the Moonquakes engine beside it.
-Then move the call site.
-```
-
-Stated as the end-state of the fork:
-
-```text
-Redis keeps its original Lua path during the proving phase.
-Moonquakes gets its own call.
-Rain-Call host owns the Redis bridge.
-When the boundary is proven, the old Lua path can be removed.
-```
-
-## Status
+## Current status
 
 Early experimental fork.
 
@@ -227,32 +192,41 @@ Current baseline:
 
 - Redis 8
 
-Milestones:
+Implemented:
 
-1. Build Redis unchanged.
-2. Run `redis-server`.
-3. Verify `redis-cli PING`.
-4. Build the Moonquakes engine alongside the existing Lua 5.1 engine.
-5. Install the Rain-Call host capability and add `RAIN.CALL` as its first caller.
-6. Prove Redis command execution through `RAIN.CALL`.
-7. Remove the original Lua 5.1 scripting path.
+- Moonquakes can load `libraincall.so` with `package.loadlib`
+- `RAIN.CALL` can call Redis through the TCP backend from standalone Moonquakes
+- Redis exposes `RAIN.FALL <lua-source> [arg...]`
+- `RAIN.FALL` runs Lua source inside Moonquakes
+- `RAIN.CALL` inside `RAIN.FALL` uses an in-process backend
+- The in-process backend uses an isolated internal Redis client and `call()`
+- Redis replies are captured, converted to `raincall_Reply`, then to Lua values
+
+Proven examples:
+
+```redis
+RAIN.FALL "return RAIN.CALL('PING')"
+RAIN.FALL "RAIN.CALL('SET','moon','quake'); return RAIN.CALL('GET','moon')"
+RAIN.FALL "local cmds = RAIN.CALL('COMMAND','LIST'); return {type(cmds), #cmds}"
+```
+
+Planned:
+
+- Expand and harden in-process command policy
+- Improve reply conversion coverage where needed
+- Add loading or registry commands if they remain useful
+- Eventually remove the original Lua 5.1 scripting path
 
 ## License
 
-Rain-Call is based on Redis 8.
+Rain-Call is based on Redis 8.  
+Redis 8 is available under a tri-license: RSALv2, SSPLv1, or AGPLv3.
 
-Redis 8 is available under a tri-license:
-RSALv2, SSPLv1, or AGPLv3.
-
-Rain-Call chooses AGPLv3 for this fork.
-
-All Rain-Call modifications are distributed under AGPLv3
-unless otherwise stated.
-
+Rain-Call chooses AGPLv3 for this fork.  
+All Rain-Call modifications are distributed under AGPLv3 unless otherwise stated.  
 Original Redis copyright notices, license files, and attribution are preserved.
 
 ## Attribution
 
-Rain-Call is based on Redis.
-
+Rain-Call is based on Redis.  
 This project is not affiliated with Redis Ltd. Redis is a trademark of Redis Ltd.
